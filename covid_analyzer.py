@@ -1,3 +1,4 @@
+import os
 import sys
 import requests
 import json
@@ -157,6 +158,33 @@ class CovidDataAnalyzer:
             "regions": [{"region": region, "total_cases": int(cases)} for region, cases in self.regions_data]
         }
 
+    def load_data_from_file(self, file_path):
+        """
+        Load COVID-19 data from a local JSON file.
+
+        Args:
+            file_path (str): Path to the JSON file.
+
+        Returns:
+            bool: True if data load was successful, False otherwise.
+        """
+        try:
+            if not os.path.exists(file_path):
+                print(f"Error: File not found: {file_path}")
+                return False
+
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+
+            # Convert the list of dictionaries to a DataFrame
+            df = pd.DataFrame(data)
+
+            self.process_data(df)
+            return True
+        except Exception as e:
+            print(f"Error loading data from file: {e}")
+            return False
+
 def create_app(analyzer):
     """
     Create a Flask application for serving COVID-19 data.
@@ -174,40 +202,43 @@ def create_app(analyzer):
     @app.route('/covid-data', methods=['GET'])
     @limiter.limit("5 per minute")  # Max 5 request per minute per IP
     def get_covid_data():
-        date_start = request.args.get('date_start')
-        date_end = request.args.get('date_start')
+        try:
+            date_start = request.args.get('date_start')
+            date_end = request.args.get('date_start')
 
-        # if date_start and date_end is not passed, then it's put today in date_start and date_end
-        if not date_start or not date_end:
-            analyzer.date_end = date.today()
-            analyzer.date_start = date.today()
+            # if date_start and date_end is not passed, then it's put today in date_start and date_end
+            if not date_start or not date_end:
+                analyzer.date_end = date.today()
+                analyzer.date_start = date.today()
 
-        if date_start:
-            try:
-                analyzer.date_start = datetime.strptime(date_start, '%Y-%m-%d').date()
-            except ValueError:
-                raise Exception("Error: The date_start format is incorrect. It must be YYYY-MM-DD")
+            if date_start:
+                try:
+                    analyzer.date_start = datetime.strptime(date_start, '%Y-%m-%d').date()
+                except ValueError:
+                    raise Exception("Error: The date_start format is incorrect. It must be YYYY-MM-DD")
 
-        if date_end:
-            try:
-                analyzer.date_end = datetime.strptime(date_end, '%Y-%m-%d').date()
-            except ValueError:
-                raise Exception("Error: The date_end format is incorrect. It must be YYYY-MM-DD")
+            if date_end:
+                try:
+                    analyzer.date_end = datetime.strptime(date_end, '%Y-%m-%d').date()
+                except ValueError:
+                    raise Exception("Error: The date_end format is incorrect. It must be YYYY-MM-DD")
 
-        if analyzer.date_start > analyzer.date_end:
-            raise Exception("Error: The date_start is greater than date_end. The end date must be after the start date.")
+            if analyzer.date_start > analyzer.date_end:
+                raise Exception("Error: The date_start is greater than date_end. The end date must be after the start date.")
 
-        if date_start or date_end:
-            success = analyzer.fetch_data()
-            if not success:
-                return jsonify({"error": f"Failed to fetch data."}), 400
-        else:
-            # Use current date if no date is provided
-            success = analyzer.fetch_data()
-            if not success:
-                return jsonify({"error": "Failed to fetch data for current date"}), 500
+            if date_start or date_end:
+                success = analyzer.fetch_data()
+                if not success:
+                    return jsonify({"error": f"Failed to fetch data."}), 400
+            else:
+                # Use current date if no date is provided
+                success = analyzer.fetch_data()
+                if not success:
+                    return jsonify({"error": "Failed to fetch data for current date"}), 500
 
-        return jsonify(analyzer.get_json_data())
+            return jsonify(analyzer.get_json_data())
+        except Exception as e:
+                return jsonify({"error": str(e)}), 400
 
     return app
 
@@ -219,6 +250,7 @@ def main():
     parser.add_argument('--excel', action='store_true', help='Export data to Excel')
     parser.add_argument('--excel-output', type=str, help='Path for Excel output file')
     parser.add_argument('--server', action='store_true', help='Start web server')
+    parser.add_argument('--file', type=str, help='Path to a local JSON file')
 
     # Parse arguments
     args = parser.parse_args()
@@ -241,16 +273,20 @@ def main():
             sys.exit(1)
 
     # if date_start and date_end is not passed, then it's put today in date_start and date_end
-    if not args.date_start or not args.date_end:
+    if not args.date_start and not args.date_end:
         analyzer.date_end = date.today()
         analyzer.date_start = date.today()
 
-    if analyzer.date_start > analyzer.date_end:
-        print("Error: The date_start is greater than date_end. The end date must be after the start date.")
-        sys.exit(1)
+    if analyzer.date_end:
+        if analyzer.date_start and analyzer.date_start > analyzer.date_end:
+            print("Error: The date_start is greater than date_end. The end date must be after the start date.")
+            sys.exit(1)
 
     # Load data
-    success = analyzer.fetch_data()
+    if args.file:
+        success = analyzer.load_data_from_file(args.file)
+    else:
+        success = analyzer.fetch_data()
 
     if not success:
         return

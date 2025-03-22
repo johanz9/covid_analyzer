@@ -5,6 +5,11 @@ import pandas as pd
 from datetime import datetime, date
 import argparse
 
+from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+
 class CovidDataAnalyzer:
     """
     A class to analyze COVID-19 data from the Italian Civil Protection Department.
@@ -138,6 +143,74 @@ class CovidDataAnalyzer:
             print(f"Error exporting to Excel: {e}")
             return False
 
+    def get_json_data(self):
+        """
+        Get the COVID-19 data in JSON format.
+
+        Returns:
+            dict: A dictionary containing the region data and date information.
+        """
+        if not self.regions_data:
+            return {"error": "No data available"}
+
+        return {
+            "regions": [{"region": region, "total_cases": int(cases)} for region, cases in self.regions_data]
+        }
+
+def create_app(analyzer):
+    """
+    Create a Flask application for serving COVID-19 data.
+
+    Args:
+        analyzer (CovidDataAnalyzer): The analyzer instance to use for data.
+
+    Returns:
+        Flask: The Flask application.
+    """
+    app = Flask(__name__)
+
+    limiter = Limiter(get_remote_address, app=app, default_limits=["10 per minute"])
+
+    @app.route('/covid-data', methods=['GET'])
+    @limiter.limit("5 per minute")  # Max 5 request per minute per IP
+    def get_covid_data():
+        date_start = request.args.get('date_start')
+        date_end = request.args.get('date_start')
+
+        # if date_start and date_end is not passed, then it's put today in date_start and date_end
+        if not date_start or not date_end:
+            analyzer.date_end = date.today()
+            analyzer.date_start = date.today()
+
+        if date_start:
+            try:
+                analyzer.date_start = datetime.strptime(date_start, '%Y-%m-%d').date()
+            except ValueError:
+                raise Exception("Error: The date_start format is incorrect. It must be YYYY-MM-DD")
+
+        if date_end:
+            try:
+                analyzer.date_end = datetime.strptime(date_end, '%Y-%m-%d').date()
+            except ValueError:
+                raise Exception("Error: The date_end format is incorrect. It must be YYYY-MM-DD")
+
+        if analyzer.date_start > analyzer.date_end:
+            raise Exception("Error: The date_start is greater than date_end. The end date must be after the start date.")
+
+        if date_start or date_end:
+            success = analyzer.fetch_data()
+            if not success:
+                return jsonify({"error": f"Failed to fetch data."}), 400
+        else:
+            # Use current date if no date is provided
+            success = analyzer.fetch_data()
+            if not success:
+                return jsonify({"error": "Failed to fetch data for current date"}), 500
+
+        return jsonify(analyzer.get_json_data())
+
+    return app
+
 def main():
     # Create argument parser
     parser = argparse.ArgumentParser(description='Analyze COVID-19 data for Italian regions')
@@ -145,6 +218,7 @@ def main():
     parser.add_argument('--date_end', type=str, help='Date in YYYY-MM-DD format')
     parser.add_argument('--excel', action='store_true', help='Export data to Excel')
     parser.add_argument('--excel-output', type=str, help='Path for Excel output file')
+    parser.add_argument('--server', action='store_true', help='Start web server')
 
     # Parse arguments
     args = parser.parse_args()
@@ -187,6 +261,13 @@ def main():
     # Export to Excel if requested
     if args.excel:
         analyzer.export_to_excel(args.excel_output)
+
+    # Start web server if requested
+    if args.server:
+        app = create_app(analyzer)
+        port = 5001
+        print(f"Starting web server on port {port}...")
+        app.run(debug=False, host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
     main()

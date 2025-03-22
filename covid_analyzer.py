@@ -6,6 +6,9 @@ from datetime import datetime, date
 import argparse
 
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
 
 class CovidDataAnalyzer:
     """
@@ -166,7 +169,10 @@ def create_app(analyzer):
     """
     app = Flask(__name__)
 
+    limiter = Limiter(get_remote_address, app=app, default_limits=["10 per minute"])
+
     @app.route('/covid-data', methods=['GET'])
+    @limiter.limit("5 per minute")  # Max 5 request per minute per IP
     def get_covid_data():
         date_start = request.args.get('date_start')
         date_end = request.args.get('date_start')

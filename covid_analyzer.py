@@ -106,11 +106,45 @@ class CovidDataAnalyzer:
         print("-" * 44)
         print(f"{'Total'} -> {int(total_cases)}")
 
+    def export_to_excel(self, output_file=None):
+        """
+        Export the COVID-19 data to an Excel file.
+
+        Args:
+            output_file (str, optional): Output file path. If None, a default name is used.
+
+        Returns:
+            bool: True if export was successful, False otherwise.
+        """
+        if not self.regions_data:
+            print("No data available.")
+            return False
+
+        try:
+            # Create default filename if none provided
+            if not output_file:
+                date_str = self.date_end.strftime('%Y%m%d')
+                output_file = f"covid19_italy_regions_{date_str}.xlsx"
+
+            # Create DataFrame
+            df = pd.DataFrame(self.regions_data, columns=['Region', 'Total Cases'])
+
+            # Export to Excel
+            df.to_excel(output_file, sheet_name='COVID-19 Cases by Region', index=False)
+
+            print(f"Data exported to {output_file}")
+            return True
+        except Exception as e:
+            print(f"Error exporting to Excel: {e}")
+            return False
+
 def main():
     # Create argument parser
     parser = argparse.ArgumentParser(description='Analyze COVID-19 data for Italian regions')
     parser.add_argument('--date_start', type=str, help='Date in YYYY-MM-DD format')
     parser.add_argument('--date_end', type=str, help='Date in YYYY-MM-DD format')
+    parser.add_argument('--excel', action='store_true', help='Export data to Excel')
+    parser.add_argument('--excel-output', type=str, help='Path for Excel output file')
 
     # Parse arguments
     args = parser.parse_args()
@@ -149,6 +183,10 @@ def main():
 
     # Print the report
     analyzer.print_report()
+
+    # Export to Excel if requested
+    if args.excel:
+        analyzer.export_to_excel(args.excel_output)
 
 if __name__ == "__main__":
     main()

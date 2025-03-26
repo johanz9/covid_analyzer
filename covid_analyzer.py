@@ -63,30 +63,28 @@ class CovidDataAnalyzer:
             data (list): List of data entries from the JSON file.
         """
         # Filter out rows without region information
-        df = df[df['denominazione_regione'].notna()]
+        df.dropna(subset=['denominazione_regione'], inplace=True)
 
-        # Ensure 'totale_casi' is numeric
+        # Ensure 'totale_casi' is numeric and handle errors
         df['totale_casi'] = pd.to_numeric(df['totale_casi'], errors='coerce').fillna(0)
 
         # Convert date column to datetime
         df['data'] = pd.to_datetime(df['data']).dt.date
 
+        # Use query for filtering by date range
         if self.date_start:
-            df = df[df['data'] >= self.date_start]
+            df = df.query('data >= @self.date_start')
 
         if self.date_end:
-            df = df[df['data'] <= self.date_end]
+            df = df.query('data <= @self.date_end')
 
         # Group by region and sum cases
         region_totals = df.groupby('denominazione_regione')['totale_casi'].sum().reset_index()
 
         # Sort by cases (descending) and then by region name (ascending)
-        region_totals = region_totals.sort_values(
-            by=['totale_casi', 'denominazione_regione'],
-            ascending=[False, True]
-        )
+        region_totals.sort_values(by=['totale_casi', 'denominazione_regione'], ascending=[False, True], inplace=True)
 
-        # Convert to a list of tuples (region, cases) to match original output
+        # Store the results
         self.regions_data = list(region_totals.itertuples(index=False, name=None))
 
     def print_report(self):
